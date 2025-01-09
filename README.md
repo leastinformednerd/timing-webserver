@@ -1,0 +1,1 @@
+Ideally this will be a webserver that directs incoming requests to spawned child processes, and times their resource usage. This is a toy application, but a possible use case for an extended version of this would be (computing resource) usage based pricing for some service.
