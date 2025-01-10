@@ -16,6 +16,24 @@ pub struct TimingInfo {
     pub sys_time: libc::timeval,
 }
 
+fn add_tv(
+    libc::timeval {
+        tv_sec: l_sec,
+        tv_usec: l_usec,
+    }: libc::timeval,
+
+    libc::timeval {
+        tv_sec: r_sec,
+        tv_usec: r_usec,
+    }: libc::timeval,
+) -> libc::timeval {
+    println!("{l_sec} {l_usec} {r_sec} {r_usec}");
+    libc::timeval {
+        tv_sec: l_sec + r_sec,
+        tv_usec: l_usec + r_usec,
+    }
+}
+
 // This is needed since libc::timeval doesn't implement Debug for obvious reasons
 impl std::fmt::Debug for TimingInfo {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -36,6 +54,50 @@ impl TimingInfo {
     }
 }
 
+impl std::ops::Add<&TimingInfo> for TimingInfo {
+    type Output = TimingInfo;
+
+    fn add(self, rhs: &TimingInfo) -> TimingInfo {
+        TimingInfo {
+            user_time: add_tv(self.user_time, rhs.user_time),
+            sys_time: add_tv(self.sys_time, rhs.sys_time),
+        }
+    }
+}
+
+impl std::ops::Add<&TimingInfo> for &TimingInfo {
+    type Output = TimingInfo;
+
+    fn add(self, rhs: &TimingInfo) -> TimingInfo {
+        TimingInfo {
+            user_time: add_tv(self.user_time, rhs.user_time),
+            sys_time: add_tv(self.sys_time, rhs.sys_time),
+        }
+    }
+}
+
+impl std::ops::Add<TimingInfo> for TimingInfo {
+    type Output = TimingInfo;
+
+    fn add(self, rhs: TimingInfo) -> TimingInfo {
+        TimingInfo {
+            user_time: add_tv(self.user_time, rhs.user_time),
+            sys_time: add_tv(self.sys_time, rhs.sys_time),
+        }
+    }
+}
+
+impl std::ops::Add<TimingInfo> for &TimingInfo {
+    type Output = TimingInfo;
+
+    fn add(self, rhs: TimingInfo) -> TimingInfo {
+        TimingInfo {
+            user_time: add_tv(self.user_time, rhs.user_time),
+            sys_time: add_tv(self.sys_time, rhs.sys_time),
+        }
+    }
+}
+
 /// A future that owns a process and is responsible for cleaning it up when it exits,
 /// as well as returning resource usage information when it does so
 pub struct TimingFuture {
@@ -45,12 +107,13 @@ pub struct TimingFuture {
     // race with this to wait for it. By dropping only when the future is dropped we make sure that
     // it's waited for by us, allowing resource usage information collection
     _child: Child,
+    token: u32,
 }
 
 impl Future for TimingFuture {
-    type Output = io::Result<TimingInfo>;
+    type Output = io::Result<(u32, TimingInfo)>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<TimingInfo>> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<(u32, TimingInfo)>> {
         match self.async_fd.poll_read_ready(cx) {
             Poll::Pending => Poll::Pending,
             // Annoyingly the following doesn't work:
@@ -90,7 +153,7 @@ impl Future for TimingFuture {
                     }
                 }
 
-                Poll::Ready(Ok(TimingInfo::from_rusage(&ru)))
+                Poll::Ready(Ok((self.token, TimingInfo::from_rusage(&ru))))
             }
         }
     }
@@ -111,7 +174,7 @@ fn pidfd_open(pid: i32, flags: u32) -> io::Result<i32> {
 
 /// Spawn a `tokio::process::Command` and ideally return a `TimingFuture` that produces usage info
 /// when the child process exits
-pub fn timing_spawn(mut cmd: Command) -> io::Result<TimingFuture> {
+pub fn timing_spawn(mut cmd: Command, token: u32) -> io::Result<TimingFuture> {
     let child = cmd.spawn()?;
 
     let pid = child.id().ok_or(ErrorKind::Other)? as i32;
@@ -119,5 +182,6 @@ pub fn timing_spawn(mut cmd: Command) -> io::Result<TimingFuture> {
     Ok(TimingFuture {
         async_fd: AsyncFd::new(pidfd_open(pid, 0).or(Err(ErrorKind::Other))?)?,
         _child: child,
+        token,
     })
 }

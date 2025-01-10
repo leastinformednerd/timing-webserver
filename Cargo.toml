@@ -5,4 +5,4 @@ edition = "2021"
 
 [dependencies]
 libc = "0.2.169"
-tokio = { version = "1.42.0", features = ["process", "net", "rt", "macros", "rt-multi-thread"] }
+tokio = { version = "1.42.0", features = ["process", "net", "rt", "macros", "rt-multi-thread", "sync"] }
